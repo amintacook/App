@@ -1,11 +1,10 @@
-name: Build and Release APK
+name: Build and Release APK with Consistent Signature
 
 on:
   push:
     branches: [ "main" ]
   workflow_dispatch:
 
-# تنظیم دسترسی برای ایجاد Release
 permissions:
   contents: write
   actions: read
@@ -26,14 +25,14 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Generate debug keystore
+      - name: Create a fixed debug keystore (امضای ثابت)
         run: |
-          keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US" -storepass android -keypass android
+          echo "${{ secrets.DEBUG_KEYSTORE_BASE64 }}" | base64 --decode > debug.keystore
 
       - name: Build Debug APK
         run: gradle assembleDebug
 
-      - name: Upload APK as artifact (برای استفاده در مرحله Release)
+      - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
@@ -63,13 +62,13 @@ jobs:
           name: "نسخه خودکار - ${{ steps.date.outputs.TAG }}"
           body: |
             فایل APK دموی اپلیکیشن برای گوشی A50.
-            
+
             ## نحوه نصب
             1. فایل را دانلود کنید
             2. به گوشی A50 انتقال دهید
             3. در تنظیمات گوشی، نصب از منابع ناشناس را فعال کنید
             4. روی فایل ضربه بزنید و نصب کنید
-            
+
             این نسخه به صورت خودکار توسط GitHub Actions ساخته شده است.
           files: apk/*.apk
           draft: false
