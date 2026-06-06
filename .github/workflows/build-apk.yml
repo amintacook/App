@@ -7,7 +7,9 @@ on:
 
 jobs:
   build:
+    name: Build Debug APK
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -18,18 +20,21 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        # این اکشن کش گریدل را مدیریت می‌کند تا بیلد‌های بعدی بسیار سریع‌تر شوند
 
-      - name: Generate debug keystore (برای امضای خودکار)
-        run: |
-          keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US" -storepass android -keypass android
+      - name: Grant execute permission for gradlew
+        run: chmod +x ./gradlew
 
       - name: Build Debug APK
-        run: gradle assembleDebug
+        run: ./gradlew assembleDebug
 
-      - name: Upload APK
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          # مسیر دقیق فایل به جای استفاده از ستاره (*)
+          path: app/build/outputs/apk/debug/app-debug.apk
+          # اگر فایل ساخته نشد، اکشن خطا بدهد تا متوجه مشکل بشویم
+          if-no-files-found: error
