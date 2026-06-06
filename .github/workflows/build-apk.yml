@@ -1,15 +1,18 @@
-name: Build Android APK
+name: Build and Release APK
 
 on:
   push:
     branches: [ "main" ]
   workflow_dispatch:
 
+# تنظیم دسترسی برای ایجاد Release
+permissions:
+  contents: write
+  actions: read
+
 jobs:
   build:
-    name: Build Debug APK
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -20,21 +23,56 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-        # این اکشن کش گریدل را مدیریت می‌کند تا بیلد‌های بعدی بسیار سریع‌تر شوند
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x ./gradlew
+      - name: Generate debug keystore
+        run: |
+          keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US" -storepass android -keypass android
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug
+        run: gradle assembleDebug
 
-      - name: Upload APK Artifact
+      - name: Upload APK as artifact (برای استفاده در مرحله Release)
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
-          # مسیر دقیق فایل به جای استفاده از ستاره (*)
-          path: app/build/outputs/apk/debug/app-debug.apk
-          # اگر فایل ساخته نشد، اکشن خطا بدهد تا متوجه مشکل بشویم
-          if-no-files-found: error
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 7
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: app-debug-apk
+          path: apk
+
+      - name: Get current date for release tag
+        id: date
+        run: echo "TAG=v$(date +'%Y.%m.%d-%H%M%S')" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release and upload APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.date.outputs.TAG }}
+          name: "نسخه خودکار - ${{ steps.date.outputs.TAG }}"
+          body: |
+            فایل APK دموی اپلیکیشن برای گوشی A50.
+            
+            ## نحوه نصب
+            1. فایل را دانلود کنید
+            2. به گوشی A50 انتقال دهید
+            3. در تنظیمات گوشی، نصب از منابع ناشناس را فعال کنید
+            4. روی فایل ضربه بزنید و نصب کنید
+            
+            این نسخه به صورت خودکار توسط GitHub Actions ساخته شده است.
+          files: apk/*.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
