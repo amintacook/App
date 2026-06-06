@@ -21,7 +21,11 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Build Debug APK with Gradle (without gradlew)
+      - name: Generate debug keystore (برای امضای خودکار)
+        run: |
+          keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US" -storepass android -keypass android
+
+      - name: Build Debug APK
         run: gradle assembleDebug
 
       - name: Upload APK
