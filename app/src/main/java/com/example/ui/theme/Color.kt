@@ -1,0 +1,31 @@
+package com.example.ui.theme
+
+import androidx.compose.ui.graphics.Color
+
+// Catppuccin Mocha Colors
+val Rosewater = Color(0xFFf5e0dc)
+val Flamingo = Color(0xFFf2cdcd)
+val Pink = Color(0xFFf5c2e7)
+val Mauve = Color(0xFFcba6f7)
+val Red = Color(0xFFf38ba8)
+val Maroon = Color(0xFFeba0ac)
+val Peach = Color(0xFFfab387)
+val Yellow = Color(0xFFf9e2af)
+val Green = Color(0xFFa6e3a1)
+val Teal = Color(0xFF94e2d5)
+val Sky = Color(0xFF89dceb)
+val Sapphire = Color(0xFF74c7ec)
+val Blue = Color(0xFF89b4fa)
+val Lavender = Color(0xFFb4befe)
+val Text = Color(0xFFcdd6f4)
+val Subtext1 = Color(0xFFbac2de)
+val Subtext0 = Color(0xFFa6adc8)
+val Overlay2 = Color(0xFF9399b2)
+val Overlay1 = Color(0xFF7f849c)
+val Overlay0 = Color(0xFF6c7086)
+val Surface2 = Color(0xFF585b70)
+val Surface1 = Color(0xFF45475a)
+val Surface0 = Color(0xFF313244)
+val Base = Color(0xFF1e1e2e)
+val Mantle = Color(0xFF181825)
+val Crust = Color(0xFF11111b)

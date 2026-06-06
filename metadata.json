@@ -1,0 +1,6 @@
+{
+  "name": "NexRay Shield",
+  "description": "Advanced native Android VPN client and network scanner app.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
