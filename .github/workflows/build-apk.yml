@@ -1,4 +1,4 @@
-name: Build and Release APK with Consistent Signature
+name: Build and Release APK (No Secret Required)
 
 on:
   push:
@@ -25,9 +25,13 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Create a fixed debug keystore (امضای ثابت)
+      - name: Create debug keystore (با رمز استاندارد)
         run: |
-          echo "${{ secrets.DEBUG_KEYSTORE_BASE64 }}" | base64 --decode > debug.keystore
+          keytool -genkey -v -keystore debug.keystore \
+            -alias androiddebugkey -keyalg RSA -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug, O=Android, C=US" \
+            -storepass android -keypass android
 
       - name: Build Debug APK
         run: gradle assembleDebug
@@ -59,17 +63,17 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.date.outputs.TAG }}
-          name: "نسخه خودکار - ${{ steps.date.outputs.TAG }}"
+          name: "APK قابل نصب - ${{ steps.date.outputs.TAG }}"
           body: |
-            فایل APK دموی اپلیکیشن برای گوشی A50.
-
-            ## نحوه نصب
-            1. فایل را دانلود کنید
-            2. به گوشی A50 انتقال دهید
-            3. در تنظیمات گوشی، نصب از منابع ناشناس را فعال کنید
-            4. روی فایل ضربه بزنید و نصب کنید
-
-            این نسخه به صورت خودکار توسط GitHub Actions ساخته شده است.
+            ## فایل APK مخصوص گوشی‌های اندروید
+            
+            **نکات نصب:**
+            1. اگر نسخه قبلی از این برنامه را نصب دارید، **اول آن را حذف کنید** (به علت تغییر امضا).
+            2. در گوشی خود به **تنظیمات → امنیت** رفته و **نصب از منابع ناشناس** را برای مرورگر یا فایل منیجری که استفاده می‌کنید فعال کنید.
+            3. فایل APK را دانلود کرده و روی آن ضربه بزنید.
+            
+            - این APK روی **همه گوشی‌های اندروید 6 به بالا (API 23+)** نصب می‌شود.
+            - در صورت بروز خطای «نصب نشد»، لطفاً ابتدا نسخه قبلی را حذف و مجدد تلاش کنید.
           files: apk/*.apk
           draft: false
           prerelease: false
