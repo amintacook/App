@@ -1,15 +1,9 @@
-name: Build and Publish Android APK
+name: Build Android APK
 
 on:
   push:
     branches: [ "main" ]
   workflow_dispatch:
-
-# ۳. سطح دسترسی: برای ایجاد یک Release (انتشار)، نیاز به دسترسی write برای contents داریم
-permissions:
-  contents: write
-  actions: read
-  checks: write
 
 jobs:
   build:
@@ -23,33 +17,15 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          # بهینه‌سازی: کش کردن گریدل برای افزایش سرعت بیلد در دفعات بعدی
-          cache: 'gradle'
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Build Debug APK with Gradle
-        run: ./gradlew assembleDebug
+      - name: Build Debug APK with Gradle (without gradlew)
+        run: gradle assembleDebug
 
-      # آپلود فایل در تب اکشن‌ها (به عنوان بک‌آپ موقت)
-      - name: Upload Debug APK as Artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
-          # استفاده از * برای جلوگیری از خطای پیدا نشدن نام دقیق فایل
-          path: app/build/outputs/apk/debug/*.apk 
-
-      # ساخت تگ داینامیک بر اساس تاریخ و زمان برای انتشار
-      - name: Generate Release Tag
-        id: tag
-        run: echo "release_tag=v1.0.$(date +'%Y%m%d%H%M')" >> $GITHUB_ENV
-
-      # انتشار رسمی در صفحه Releases گیت‌هاب
-      - name: Publish APK to GitHub Releases
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.release_tag }}
-          name: "Debug Build ${{ env.release_tag }}"
-          files: app/build/outputs/apk/debug/*.apk
-          
+          path: app/build/outputs/apk/debug/*.apk
