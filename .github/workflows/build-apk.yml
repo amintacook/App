@@ -1,0 +1,40 @@
+name: Build Android APK
+
+# ۱. رویداد اجرا: هر بار که کدی به شاخه main ارسال می‌شود
+on:
+  push:
+    branches: [ "main" ]
+
+  # ۲. قابلیت اجرای دستی: برای ساخت دستی و آسان، این گزینه را اضافه می‌کنیم
+  workflow_dispatch:
+
+# ۳. سطح دسترسی: به Action اجازه می‌دهیم تا خروجی نهایی (Artifact) را ذخیره کند
+permissions:
+  contents: read
+  actions: write
+  checks: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build Debug APK with Gradle
+        run: ./gradlew assembleDebug
+
+      - name: Upload Debug APK as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
