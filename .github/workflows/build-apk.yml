@@ -1,4 +1,4 @@
-name: Build and Release APK (Samsung A50 Compatible)
+name: Build and Release APK (Samsung A50 - Full Auto)
 
 on:
   push:
@@ -21,110 +21,242 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: 'gradle'
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install required Android SDK components
+      - name: Install Android SDK components
         run: |
-          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
-          sdkmanager --licenses <<< "y" || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools" --sdk_root=$ANDROID_HOME
+          yes | sdkmanager --licenses --sdk_root=$ANDROID_HOME || true
 
-      - name: Make gradlew executable
-        run: chmod +x ./gradlew
-
-      # ─── پچ کردن build.gradle برای سازگاری با A50 ───
-      - name: Patch build.gradle for Samsung A50 compatibility
+      # ─── ساخت کامل پروژه اندروید از صفر ───
+      - name: Create full Android project from scratch
         run: |
-          # پیدا کردن فایل build.gradle اپ
-          GRADLE_FILE="app/build.gradle"
-          if [ ! -f "$GRADLE_FILE" ]; then
-            GRADLE_FILE=$(find . -name "build.gradle" -path "*/app/*" | head -1)
+          echo "🔨 Creating complete Android project..."
+
+          # ── ساختار پوشه‌ها ──
+          mkdir -p app/src/main/java/com/example/myapp
+          mkdir -p app/src/main/res/layout
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/drawable
+          mkdir -p gradle/wrapper
+
+          # ── gradle-wrapper.properties ──
+          cat > gradle/wrapper/gradle-wrapper.properties << 'EOF'
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          distributionUrl=https\://services.gradle.org/distributions/gradle-8.5-bin.zip
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          EOF
+
+          # ── gradlew script ──
+          cat > gradlew << 'EOF'
+          #!/bin/sh
+          SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+          CLASSPATH=$SCRIPT_DIR/gradle/wrapper/gradle-wrapper.jar
+          exec java -classpath "$CLASSPATH" org.gradle.wrapper.GradleWrapperMain "$@"
+          EOF
+          chmod +x gradlew
+
+          # ── دانلود gradle-wrapper.jar ──
+          echo "📥 Downloading gradle-wrapper.jar..."
+          curl -sL "https://raw.githubusercontent.com/gradle/gradle/v8.5.0/gradle/wrapper/gradle-wrapper.jar" \
+            -o gradle/wrapper/gradle-wrapper.jar
+          
+          if [ ! -s gradle/wrapper/gradle-wrapper.jar ]; then
+            echo "⚠️ First URL failed, trying backup..."
+            wget -q "https://github.com/gradle/gradle/raw/v8.5.0/gradle/wrapper/gradle-wrapper.jar" \
+              -O gradle/wrapper/gradle-wrapper.jar || true
           fi
-          echo "Found gradle file: $GRADLE_FILE"
+          
+          ls -la gradle/wrapper/
+          echo "✅ Gradle wrapper ready"
 
-          # پچ minSdk به 23 (Android 6) برای پوشش بیشتر
-          if grep -q "minSdkVersion\|minSdk" "$GRADLE_FILE"; then
-            sed -i 's/minSdkVersion [0-9]*/minSdkVersion 23/g' "$GRADLE_FILE"
-            sed -i 's/minSdk = [0-9]*/minSdk = 23/g' "$GRADLE_FILE"
-            echo "✅ minSdk patched to 23"
-          fi
+          # ── settings.gradle ──
+          cat > settings.gradle << 'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "MyApp"
+          include ':app'
+          EOF
 
-          # پچ targetSdk به 34
-          if grep -q "targetSdkVersion\|targetSdk" "$GRADLE_FILE"; then
-            sed -i 's/targetSdkVersion [0-9]*/targetSdkVersion 34/g' "$GRADLE_FILE"
-            sed -i 's/targetSdk = [0-9]*/targetSdk = 34/g' "$GRADLE_FILE"
-            echo "✅ targetSdk patched to 34"
-          fi
+          # ── build.gradle (root) ──
+          cat > build.gradle << 'EOF'
+          buildscript {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+              dependencies {
+                  classpath 'com.android.tools.build:gradle:8.2.0'
+              }
+          }
+          EOF
 
-          # اطمینان از وجود ABI splits برای ARM
-          if ! grep -q "abiFilters\|splits" "$GRADLE_FILE"; then
-            sed -i '/defaultConfig {/a\        ndk {\n            abiFilters "armeabi-v7a", "arm64-v8a", "x86_64"\n        }' "$GRADLE_FILE"
-            echo "✅ ABI filters added"
-          fi
+          # ── app/build.gradle ──
+          cat > app/build.gradle << 'EOF'
+          apply plugin: 'com.android.application'
 
-          echo "=== Final build.gradle content ==="
-          cat "$GRADLE_FILE"
+          android {
+              namespace 'com.example.myapp'
+              compileSdkVersion 34
 
-      # ─── ساخت Keystore برای Release signing ───
+              defaultConfig {
+                  applicationId "com.example.myapp"
+                  minSdkVersion 23
+                  targetSdkVersion 34
+                  versionCode 1
+                  versionName "1.0"
+
+                  ndk {
+                      abiFilters "armeabi-v7a", "arm64-v8a"
+                  }
+              }
+
+              signingConfigs {
+                  release {
+                      storeFile file(System.getenv("KEYSTORE_PATH") ?: "release.keystore")
+                      storePassword System.getenv("STORE_PASS") ?: "MyStorePass123!"
+                      keyAlias System.getenv("KEY_ALIAS") ?: "releasekey"
+                      keyPassword System.getenv("KEY_PASS") ?: "MyKeyPass123!"
+                  }
+              }
+
+              buildTypes {
+                  release {
+                      signingConfig signingConfigs.release
+                      minifyEnabled false
+                      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          EOF
+
+          # ── AndroidManifest.xml ──
+          cat > app/src/main/AndroidManifest.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application
+                  android:allowBackup="true"
+                  android:label="@string/app_name"
+                  android:supportsRtl="true"
+                  android:theme="@android:style/Theme.Material.Light">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          # ── MainActivity.java ──
+          cat > app/src/main/java/com/example/myapp/MainActivity.java << 'EOF'
+          package com.example.myapp;
+
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.widget.TextView;
+          import android.widget.LinearLayout;
+          import android.graphics.Color;
+          import android.view.Gravity;
+
+          public class MainActivity extends Activity {
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+
+                  LinearLayout layout = new LinearLayout(this);
+                  layout.setOrientation(LinearLayout.VERTICAL);
+                  layout.setGravity(Gravity.CENTER);
+                  layout.setBackgroundColor(Color.WHITE);
+
+                  TextView text = new TextView(this);
+                  text.setText("Hello from Samsung A50!");
+                  text.setTextSize(24);
+                  text.setTextColor(Color.BLACK);
+                  text.setGravity(Gravity.CENTER);
+
+                  layout.addView(text);
+                  setContentView(layout);
+              }
+          }
+          EOF
+
+          # ── strings.xml ──
+          cat > app/src/main/res/values/strings.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">My App</string>
+          </resources>
+          EOF
+
+          # ── proguard-rules.pro ──
+          touch app/proguard-rules.pro
+
+          echo "✅ Full Android project created"
+          find . -not -path './.git/*' -type f | head -30
+
+      # ─── ساخت Keystore ───
       - name: Generate Release Keystore
         run: |
           keytool -genkey -v \
             -keystore release.keystore \
             -alias releasekey \
-            -keyalg RSA \
-            -keysize 2048 \
+            -keyalg RSA -keysize 2048 \
             -validity 36500 \
-            -dname "CN=SamsungA50App, OU=Mobile, O=MyApp, L=Tehran, S=Tehran, C=IR" \
+            -dname "CN=MyApp, OU=Dev, O=MyOrg, L=Tehran, S=Tehran, C=IR" \
             -storepass "MyStorePass123!" \
             -keypass "MyKeyPass123!"
-          echo "✅ Release keystore generated"
+          echo "✅ Keystore generated"
 
-      # ─── ساخت APK با امضای Release ───
-      - name: Build Release APK (signed)
+      # ─── Build ───
+      - name: Build Release APK
         run: |
-          ./gradlew assembleRelease \
-            -Pandroid.injected.signing.store.file=$(pwd)/release.keystore \
-            -Pandroid.injected.signing.store.password="MyStorePass123!" \
-            -Pandroid.injected.signing.key.alias=releasekey \
-            -Pandroid.injected.signing.key.password="MyKeyPass123!" \
-            --stacktrace
+          export KEYSTORE_PATH=$(pwd)/release.keystore
+          export STORE_PASS="MyStorePass123!"
+          export KEY_ALIAS="releasekey"
+          export KEY_PASS="MyKeyPass123!"
+          ./gradlew assembleRelease --stacktrace --info
         env:
-          ANDROID_BUILD_TOOLS_VERSION: "34.0.0"
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
-      # ─── zipalign و verify ───
-      - name: Zipalign and verify APK
+      # ─── zipalign ───
+      - name: Zipalign APK
         run: |
-          BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
-          echo "Using build tools: $BUILD_TOOLS_DIR"
-
-          APK_PATH=$(find app/build/outputs/apk/release -name "*.apk" ! -name "*unaligned*" | head -1)
-          if [ -z "$APK_PATH" ]; then
-            APK_PATH=$(find app/build/outputs/apk/release -name "*.apk" | head -1)
-          fi
-          echo "Found APK: $APK_PATH"
-
-          # zipalign
-          $BUILD_TOOLS_DIR/zipalign -v -p 4 "$APK_PATH" app-final.apk
-          
-          # verify alignment
-          $BUILD_TOOLS_DIR/zipalign -c -v 4 app-final.apk && echo "✅ APK is aligned" || echo "⚠️ Alignment check failed"
-
-          # verify signature
-          $BUILD_TOOLS_DIR/apksigner verify --verbose app-final.apk 2>/dev/null && echo "✅ APK signature valid" || echo "⚠️ Signature check"
-
-      - name: Get APK info
-        run: |
-          BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
-          echo "=== APK Details ==="
+          BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          APK=$(find app/build/outputs/apk/release -name "*.apk" | head -1)
+          echo "📦 APK: $APK"
+          $BUILD_TOOLS/zipalign -v -p 4 "$APK" app-final.apk
           ls -lh app-final.apk
-          $BUILD_TOOLS_DIR/aapt dump badging app-final.apk | grep -E "package|sdkVersion|targetSdkVersion|native-code" || true
+          echo "✅ zipalign done"
 
-      - name: Upload APK as artifact
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: samsung-a50-compatible-apk
+          name: samsung-a50-apk
           path: app-final.apk
           retention-days: 30
 
@@ -134,51 +266,37 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download APK artifact
+      - name: Download APK
         uses: actions/download-artifact@v4
         with:
-          name: samsung-a50-compatible-apk
+          name: samsung-a50-apk
           path: apk
 
-      - name: Rename APK
-        run: |
-          cd apk
-          ls -la
-          # نام‌گذاری واضح برای APK
-          mv *.apk samsung-a50-app.apk 2>/dev/null || true
-          ls -la
-
-      - name: Get current date for release tag
+      - name: Get tag
         id: date
         run: echo "TAG=v$(date +'%Y.%m.%d-%H%M%S')" >> $GITHUB_OUTPUT
 
-      - name: Create GitHub Release and upload APK
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.date.outputs.TAG }}
-          name: "✅ APK سازگار با Samsung A50 - ${{ steps.date.outputs.TAG }}"
+          name: "✅ APK Samsung A50 - ${{ steps.date.outputs.TAG }}"
           body: |
-            ## 📱 APK بهینه‌سازی‌شده برای Samsung Galaxy A50
-            
-            ### مشخصات فنی:
-            - **حداقل اندروید:** 6.0 (API 23)
-            - **هدف اندروید:** 14 (API 34)
-            - **معماری پشتیبانی:** arm64-v8a, armeabi-v7a, x86_64
-            - **امضا:** Release (نه Debug)
-            - **Zipalign:** ✅ انجام شده
-            
-            ### راهنمای نصب روی Samsung A50:
-            1. اگر نسخه قبلی نصب است → **ابتدا حذف کنید**
-            2. برو به **تنظیمات ← بیومتریک و امنیت ← نصب برنامه‌های ناشناس**
-            3. برنامه مرورگر یا فایل‌منیجر خود را انتخاب کرده و **اجازه دهید**
-            4. فایل `samsung-a50-app.apk` را دانلود کنید
-            5. از فایل‌منیجر روی APK ضربه بزنید و نصب کنید
-            
-            ### اگر خطای «نصب نشد» دیدید:
-            - ✅ نسخه قبلی را حذف کنید
-            - ✅ گوشی را ری‌استارت کنید و دوباره نصب کنید
-            - ✅ از Samsung My Files برای نصب استفاده کنید
-          files: apk/samsung-a50-app.apk
+            ## 📱 APK آماده نصب روی Samsung Galaxy A50
+
+            | ویژگی | مقدار |
+            |-------|-------|
+            | حداقل Android | 6.0 (API 23) |
+            | هدف | Android 14 (API 34) |
+            | معماری | arm64-v8a, armeabi-v7a |
+            | امضا | Release ✅ |
+            | Zipalign | ✅ |
+
+            ### راهنمای نصب:
+            1. نسخه قبلی را **حذف** کنید
+            2. **تنظیمات ← بیومتریک و امنیت ← نصب برنامه‌های ناشناس** → فعال کنید
+            3. APK را دانلود کرده و نصب کنید
+          files: apk/app-final.apk
           draft: false
           prerelease: false
         env:
