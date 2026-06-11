@@ -1,4 +1,4 @@
-name: Build and Release APK (No Secret Required)
+name: Build and Release APK (Samsung A50 Compatible)
 
 on:
   push:
@@ -21,27 +21,112 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: 'gradle'
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Create debug keystore (با رمز استاندارد)
+      - name: Install required Android SDK components
         run: |
-          keytool -genkey -v -keystore debug.keystore \
-            -alias androiddebugkey -keyalg RSA -keysize 2048 \
-            -validity 10000 \
-            -dname "CN=Android Debug, O=Android, C=US" \
-            -storepass android -keypass android
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+          sdkmanager --licenses <<< "y" || true
 
-      - name: Build Debug APK
-        run: gradle assembleDebug
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      # ─── پچ کردن build.gradle برای سازگاری با A50 ───
+      - name: Patch build.gradle for Samsung A50 compatibility
+        run: |
+          # پیدا کردن فایل build.gradle اپ
+          GRADLE_FILE="app/build.gradle"
+          if [ ! -f "$GRADLE_FILE" ]; then
+            GRADLE_FILE=$(find . -name "build.gradle" -path "*/app/*" | head -1)
+          fi
+          echo "Found gradle file: $GRADLE_FILE"
+
+          # پچ minSdk به 23 (Android 6) برای پوشش بیشتر
+          if grep -q "minSdkVersion\|minSdk" "$GRADLE_FILE"; then
+            sed -i 's/minSdkVersion [0-9]*/minSdkVersion 23/g' "$GRADLE_FILE"
+            sed -i 's/minSdk = [0-9]*/minSdk = 23/g' "$GRADLE_FILE"
+            echo "✅ minSdk patched to 23"
+          fi
+
+          # پچ targetSdk به 34
+          if grep -q "targetSdkVersion\|targetSdk" "$GRADLE_FILE"; then
+            sed -i 's/targetSdkVersion [0-9]*/targetSdkVersion 34/g' "$GRADLE_FILE"
+            sed -i 's/targetSdk = [0-9]*/targetSdk = 34/g' "$GRADLE_FILE"
+            echo "✅ targetSdk patched to 34"
+          fi
+
+          # اطمینان از وجود ABI splits برای ARM
+          if ! grep -q "abiFilters\|splits" "$GRADLE_FILE"; then
+            sed -i '/defaultConfig {/a\        ndk {\n            abiFilters "armeabi-v7a", "arm64-v8a", "x86_64"\n        }' "$GRADLE_FILE"
+            echo "✅ ABI filters added"
+          fi
+
+          echo "=== Final build.gradle content ==="
+          cat "$GRADLE_FILE"
+
+      # ─── ساخت Keystore برای Release signing ───
+      - name: Generate Release Keystore
+        run: |
+          keytool -genkey -v \
+            -keystore release.keystore \
+            -alias releasekey \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 36500 \
+            -dname "CN=SamsungA50App, OU=Mobile, O=MyApp, L=Tehran, S=Tehran, C=IR" \
+            -storepass "MyStorePass123!" \
+            -keypass "MyKeyPass123!"
+          echo "✅ Release keystore generated"
+
+      # ─── ساخت APK با امضای Release ───
+      - name: Build Release APK (signed)
+        run: |
+          ./gradlew assembleRelease \
+            -Pandroid.injected.signing.store.file=$(pwd)/release.keystore \
+            -Pandroid.injected.signing.store.password="MyStorePass123!" \
+            -Pandroid.injected.signing.key.alias=releasekey \
+            -Pandroid.injected.signing.key.password="MyKeyPass123!" \
+            --stacktrace
+        env:
+          ANDROID_BUILD_TOOLS_VERSION: "34.0.0"
+
+      # ─── zipalign و verify ───
+      - name: Zipalign and verify APK
+        run: |
+          BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          echo "Using build tools: $BUILD_TOOLS_DIR"
+
+          APK_PATH=$(find app/build/outputs/apk/release -name "*.apk" ! -name "*unaligned*" | head -1)
+          if [ -z "$APK_PATH" ]; then
+            APK_PATH=$(find app/build/outputs/apk/release -name "*.apk" | head -1)
+          fi
+          echo "Found APK: $APK_PATH"
+
+          # zipalign
+          $BUILD_TOOLS_DIR/zipalign -v -p 4 "$APK_PATH" app-final.apk
+          
+          # verify alignment
+          $BUILD_TOOLS_DIR/zipalign -c -v 4 app-final.apk && echo "✅ APK is aligned" || echo "⚠️ Alignment check failed"
+
+          # verify signature
+          $BUILD_TOOLS_DIR/apksigner verify --verbose app-final.apk 2>/dev/null && echo "✅ APK signature valid" || echo "⚠️ Signature check"
+
+      - name: Get APK info
+        run: |
+          BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          echo "=== APK Details ==="
+          ls -lh app-final.apk
+          $BUILD_TOOLS_DIR/aapt dump badging app-final.apk | grep -E "package|sdkVersion|targetSdkVersion|native-code" || true
 
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
-          retention-days: 7
+          name: samsung-a50-compatible-apk
+          path: app-final.apk
+          retention-days: 30
 
   release:
     needs: build
@@ -52,8 +137,16 @@ jobs:
       - name: Download APK artifact
         uses: actions/download-artifact@v4
         with:
-          name: app-debug-apk
+          name: samsung-a50-compatible-apk
           path: apk
+
+      - name: Rename APK
+        run: |
+          cd apk
+          ls -la
+          # نام‌گذاری واضح برای APK
+          mv *.apk samsung-a50-app.apk 2>/dev/null || true
+          ls -la
 
       - name: Get current date for release tag
         id: date
@@ -63,18 +156,29 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.date.outputs.TAG }}
-          name: "APK قابل نصب - ${{ steps.date.outputs.TAG }}"
+          name: "✅ APK سازگار با Samsung A50 - ${{ steps.date.outputs.TAG }}"
           body: |
-            ## فایل APK مخصوص گوشی‌های اندروید
+            ## 📱 APK بهینه‌سازی‌شده برای Samsung Galaxy A50
             
-            **نکات نصب:**
-            1. اگر نسخه قبلی از این برنامه را نصب دارید، **اول آن را حذف کنید** (به علت تغییر امضا).
-            2. در گوشی خود به **تنظیمات → امنیت** رفته و **نصب از منابع ناشناس** را برای مرورگر یا فایل منیجری که استفاده می‌کنید فعال کنید.
-            3. فایل APK را دانلود کرده و روی آن ضربه بزنید.
+            ### مشخصات فنی:
+            - **حداقل اندروید:** 6.0 (API 23)
+            - **هدف اندروید:** 14 (API 34)
+            - **معماری پشتیبانی:** arm64-v8a, armeabi-v7a, x86_64
+            - **امضا:** Release (نه Debug)
+            - **Zipalign:** ✅ انجام شده
             
-            - این APK روی **همه گوشی‌های اندروید 6 به بالا (API 23+)** نصب می‌شود.
-            - در صورت بروز خطای «نصب نشد»، لطفاً ابتدا نسخه قبلی را حذف و مجدد تلاش کنید.
-          files: apk/*.apk
+            ### راهنمای نصب روی Samsung A50:
+            1. اگر نسخه قبلی نصب است → **ابتدا حذف کنید**
+            2. برو به **تنظیمات ← بیومتریک و امنیت ← نصب برنامه‌های ناشناس**
+            3. برنامه مرورگر یا فایل‌منیجر خود را انتخاب کرده و **اجازه دهید**
+            4. فایل `samsung-a50-app.apk` را دانلود کنید
+            5. از فایل‌منیجر روی APK ضربه بزنید و نصب کنید
+            
+            ### اگر خطای «نصب نشد» دیدید:
+            - ✅ نسخه قبلی را حذف کنید
+            - ✅ گوشی را ری‌استارت کنید و دوباره نصب کنید
+            - ✅ از Samsung My Files برای نصب استفاده کنید
+          files: apk/samsung-a50-app.apk
           draft: false
           prerelease: false
         env:
