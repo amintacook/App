@@ -28,28 +28,23 @@ jobs:
       - name: Accept SDK licenses
         run: yes | sdkmanager --licenses || true
 
-      # ─── نصب Gradle به صورت مستقیم (چون gradlew در ریپو نیست) ───
-      - name: Install Gradle 8.11
+      # ─── نسخه صحیح Gradle برای AGP 9.1.1 ───
+      - name: Install Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.11'
+          gradle-version: '9.3.1'
 
-      # ─── ساخت gradlew از Gradle نصب‌شده ───
       - name: Generate gradlew wrapper
         run: |
-          gradle wrapper --gradle-version=8.11
+          gradle wrapper --gradle-version=9.3.1
           chmod +x gradlew
-          echo "✅ gradlew created"
-          ls -la gradlew gradle/wrapper/
+          echo "✅ gradlew 9.3.1 created"
 
-      # ─── غیرفعال کردن configuration cache که باعث خطا می‌شد ───
       - name: Disable configuration cache
         run: |
           sed -i 's/org.gradle.configuration-cache=true/org.gradle.configuration-cache=false/' gradle.properties
           echo "✅ Configuration cache disabled"
-          cat gradle.properties
 
-      # ─── ساخت keystore برای امضا ───
       - name: Generate Release Keystore
         run: |
           keytool -genkey -v \
@@ -57,56 +52,39 @@ jobs:
             -alias releasekey \
             -keyalg RSA -keysize 2048 \
             -validity 36500 \
-            -dname "CN=MyApp, OU=Dev, O=MyOrg, L=Tehran, S=Tehran, C=IR" \
+            -dname "CN=MyApp, OU=Dev, O=MyOrg, L=Tehran, ST=Tehran, C=IR" \
             -storepass "MyStorePass123!" \
-            -keypass "MyKeyPass123!"
+            -keypass "MyStorePass123!"
           echo "✅ Keystore generated"
 
-      # ─── پچ app/build.gradle.kts برای signing و A50 ───
-      - name: Patch app/build.gradle.kts for release signing
+      - name: Patch app/build.gradle.kts
         run: |
-          GRADLE_FILE="app/build.gradle.kts"
-          
-          # حذف خط signingConfig که مربوط به debugConfig است
-          sed -i '/signingConfig = signingConfigs.getByName("debugConfig")/d' "$GRADLE_FILE" || true
+          # حذف signingConfig که مانع نصب روی A50 می‌شود
+          sed -i '/signingConfig = signingConfigs.getByName("debugConfig")/d' app/build.gradle.kts || true
+          # اطمینان از minSdk 23
+          sed -i 's/minSdk = [0-9]*/minSdk = 23/' app/build.gradle.kts || true
+          echo "=== app/build.gradle.kts ==="
+          cat app/build.gradle.kts
 
-          # اطمینان از minSdk مناسب
-          sed -i 's/minSdk = [0-9]*/minSdk = 23/' "$GRADLE_FILE" || true
-
-          echo "=== app/build.gradle.kts after patch ==="
-          cat "$GRADLE_FILE"
-
-      # ─── Build با GEMINI_API_KEY موقت (برای compile شدن) ───
       - name: Build Release APK
         run: |
           ./gradlew assembleRelease \
             -Pandroid.injected.signing.store.file=$(pwd)/release.keystore \
             -Pandroid.injected.signing.store.password="MyStorePass123!" \
             -Pandroid.injected.signing.key.alias=releasekey \
-            -Pandroid.injected.signing.key.password="MyKeyPass123!" \
+            -Pandroid.injected.signing.key.password="MyStorePass123!" \
             -PGEMINI_API_KEY="placeholder_key" \
             --no-configuration-cache \
-            --stacktrace \
-            2>&1
+            --stacktrace
         env:
           GEMINI_API_KEY: "placeholder_key"
 
-      # ─── پیدا کردن APK ───
-      - name: Find APK
-        run: |
-          echo "=== All APK files ==="
-          find . -name "*.apk" 2>/dev/null
-          APK=$(find app/build/outputs/apk/release -name "*.apk" | head -1)
-          echo "Main APK: $APK"
-          ls -lh "$APK"
-
-      # ─── zipalign ───
       - name: Zipalign APK
         run: |
           BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
           APK=$(find app/build/outputs/apk/release -name "*.apk" | head -1)
+          echo "APK: $APK"
           $BUILD_TOOLS/zipalign -v -p 4 "$APK" app-final.apk
-          echo "✅ Zipalign done"
           ls -lh app-final.apk
 
       - name: Upload APK artifact
@@ -139,18 +117,17 @@ jobs:
           name: "✅ APK Samsung A50 - ${{ steps.date.outputs.TAG }}"
           body: |
             ## 📱 APK آماده نصب روی Samsung Galaxy A50
-            
+
             | ویژگی | مقدار |
             |-------|-------|
             | حداقل Android | 6.0 (API 23) |
-            | معماری | arm64-v8a, armeabi-v7a |
             | امضا | Release ✅ |
             | Zipalign | ✅ |
 
             ### راهنمای نصب:
             1. نسخه قبلی را **حذف** کنید
             2. **تنظیمات ← بیومتریک و امنیت ← نصب برنامه‌های ناشناس** → فعال کنید
-            3. فایل APK را دانلود و نصب کنید
+            3. APK را دانلود و نصب کنید
           files: apk/app-final.apk
           draft: false
           prerelease: false
